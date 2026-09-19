@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>What Did You Find?</title>
+<title>What Did You Find? — V8</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box} body{margin:0;background:#f7f7f5;color:#171717}
@@ -23,7 +23,8 @@ main{min-height:100vh;display:flex;flex-direction:column;align-items:center;just
 #panel .box{max-width:650px;margin:auto;text-align:left}
 label{display:block;font-size:20px;font-weight:700;margin:18px 0 7px}
 input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;border-radius:12px}
-#photoPick{font-size:19px;width:100%;margin-top:8px}
+#photoPick{position:absolute;width:1px;height:1px;opacity:0}
+#photoButton{display:block;width:100%;margin-top:8px;padding:18px;border:1px solid #aaa;border-radius:16px;background:white;font-size:22px;font-weight:750;text-align:center}
 #preview{display:none;max-width:280px;max-height:260px;object-fit:contain;background:white;border-radius:18px;margin-top:15px;padding:8px}
 .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
 .actions button{font-size:21px;padding:14px 20px;border-radius:12px;border:1px solid #aaa;background:white}
@@ -38,7 +39,7 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
 <div id="produceEmoji" aria-hidden="true"></div>
 <div id="photoStatus"></div>
 <div id="brand"></div><div id="title"></div><div id="upc"></div>
-<div id="hint">Scan another item anytime.</div>
+<div id="hint">Scan another item anytime. <span style="opacity:.45">V8</span></div>
 <button id="teach" class="action">Teach Me This Item</button>
 <button id="edit" class="action">Add or Change Picture</button>
 </main>
@@ -51,7 +52,8 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
   <input id="name" type="text" placeholder="Almond Breeze Almond Milk">
   <label for="photoPick">Picture</label>
   <input id="photoPick" type="file" accept="image/*">
-  <div class="small">Choose a picture already on the iPad, or use the camera option if iPadOS offers it.</div>
+  <button id="photoButton" type="button">📷 Take or Choose a Picture</button>
+  <div class="small">Tap the big button above. Your iPad should offer the camera or photo library.</div>
   <img id="preview" alt="Selected picture">
   <div class="actions"><button id="save">Save Item</button><button id="cancel">Cancel</button></div>
  </div>
@@ -61,7 +63,7 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
 const $=id=>document.getElementById(id);
 const statusEl=$('status'),pic=$('picture'),produceEmoji=$('produceEmoji'),photoStatus=$('photoStatus'),
 brandEl=$('brand'),titleEl=$('title'),upcEl=$('upc'),teachBtn=$('teach'),editBtn=$('edit'),
-panel=$('panel'),panelTitle=$('panelTitle'),nameInput=$('name'),photoPick=$('photoPick'),
+panel=$('panel'),panelTitle=$('panelTitle'),nameInput=$('name'),photoPick=$('photoPick'),photoButton=$('photoButton'),
 preview=$('preview'),teachUpc=$('teachUpc');
 
 let buffer='',lastKey=0,currentUPC='',scanToken=0,pendingPhoto='',currentItem=null;
@@ -129,9 +131,21 @@ const PRODUCE={
 };
 
 function normalizeProduceCode(code){
-  // Some scanners may return a leading zero for a PLU barcode.
+  code=(code||'').replace(/\D/g,'');
   if(PRODUCE[code]) return code;
   if(code.length===5 && code[0]==='0' && PRODUCE[code.slice(1)]) return code.slice(1);
+
+  // Longer produce stickers can embed the PLU inside a GS1-style barcode.
+  // Example from our test: 0100605049040538 contains lemon PLU 4053.
+  let matches=[];
+  for(const plu of Object.keys(PRODUCE)){
+    let pos=code.lastIndexOf(plu);
+    if(pos>=0) matches.push({plu,pos});
+  }
+  if(matches.length){
+    matches.sort((a,b)=>b.pos-a.pos);
+    return matches[0].plu;
+  }
   return code;
 }
 
@@ -210,7 +224,7 @@ window.addEventListener('keydown',e=>{
 },true);
 
 function openEditor(isNew){
- panelTitle.textContent=isNew?'Teach Me This Item':'Add or Change Picture';
+ panelTitle.textContent=isNew?'Teach Me This Item':'Edit This Item';
  teachUpc.textContent='UPC '+currentUPC;
  nameInput.value=isNew?'':(currentItem?.title||'');
  pendingPhoto=currentItem?.image||'';
@@ -219,6 +233,10 @@ function openEditor(isNew){
 }
 teachBtn.onclick=()=>openEditor(true);
 editBtn.onclick=()=>openEditor(false);
+photoButton.onclick=()=>{
+ nameInput.blur();
+ photoPick.click();
+};
 photoPick.onchange=()=>{
  const f=photoPick.files&&photoPick.files[0];if(!f)return;
  // Resize/compress so photos fit comfortably in iPad local storage.
