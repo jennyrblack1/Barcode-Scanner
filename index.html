@@ -7,11 +7,13 @@
 <title>What Did You Find?</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-*{box-sizing:border-box} body{margin:0;background:#f7f7f5;color:#171717}
+*{box-sizing:border-box}
+body{margin:0;background:#f7f7f5;color:#171717}
 main{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px}
-#status{font-size:clamp(30px,5vw,58px);font-weight:850;margin:8px 0 20px}
-#picture{display:none;width:min(62vw,520px);height:min(48vh,470px);object-fit:contain;background:white;border-radius:24px;padding:14px}
-#brand{font-size:clamp(23px,4vw,42px);font-weight:700;margin-top:18px}
+#status{font-size:clamp(30px,5vw,58px);font-weight:850;margin:8px 0 18px}
+#picture{display:none;width:min(62vw,520px);height:min(46vh,450px);object-fit:contain;background:white;border-radius:24px;padding:14px}
+#photoStatus{display:none;font-size:20px;opacity:.62;margin:12px 0 2px}
+#brand{font-size:clamp(23px,4vw,42px);font-weight:700;margin-top:16px}
 #title{font-size:clamp(30px,5vw,58px);font-weight:850;line-height:1.08;max-width:900px}
 #upc{font-size:17px;opacity:.5;margin-top:12px}
 #hint{font-size:20px;opacity:.65;margin-top:20px}
@@ -29,6 +31,7 @@ input{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;border-radius
 <main>
 <div id="status">READY — SCAN SOMETHING</div>
 <img id="picture" alt="">
+<div id="photoStatus"></div>
 <div id="brand"></div><div id="title"></div><div id="upc"></div>
 <div id="hint">Scan another item anytime.</div>
 <button id="teach">Teach Me This Item</button>
@@ -48,66 +51,123 @@ input{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;border-radius
 
 <script>
 const $=id=>document.getElementById(id);
-const statusEl=$('status'),pic=$('picture'),brandEl=$('brand'),titleEl=$('title'),upcEl=$('upc');
-const teachBtn=$('teach'),panel=$('panel'),nameInput=$('name'),imageInput=$('imageUrl'),teachUpc=$('teachUpc');
-let buffer='',lastKey=0,busy=false,currentUPC='';
+const statusEl=$('status'),pic=$('picture'),photoStatus=$('photoStatus'),
+brandEl=$('brand'),titleEl=$('title'),upcEl=$('upc'),teachBtn=$('teach'),
+panel=$('panel'),nameInput=$('name'),imageInput=$('imageUrl'),teachUpc=$('teachUpc');
+
+let buffer='',lastKey=0,currentUPC='',scanToken=0;
 
 const BUILT_INS={
  "030772117477":{title:"Dawn Powerwash Dish Spray",brand:"Dawn",image:""}
 };
-function saved(){try{return JSON.parse(localStorage.getItem('myProducts')||'{}')}catch(e){return{}}}
+
+function readJSON(key){try{return JSON.parse(localStorage.getItem(key)||'{}')}catch(e){return{}}}
+function saved(){return readJSON('myProducts')}
+function cache(){return readJSON('productCache')}
 function getLocal(upc){return saved()[upc]||BUILT_INS[upc]||null}
-function speak(t){if(!t||!('speechSynthesis'in window))return;speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(t);u.rate=.9;speechSynthesis.speak(u)}
-function showImage(url){
- if(!url){pic.style.display='none';return}
- pic.onload=()=>pic.style.display='block';
- pic.onerror=()=>pic.style.display='none';
- pic.src=url;
+function getCached(upc){return cache()[upc]||null}
+function saveCache(upc,item){
+  if(!item)return;
+  let db=cache(); db[upc]=item;
+  try{localStorage.setItem('productCache',JSON.stringify(db))}catch(e){}
 }
-function showItem(item,upc){
+function speak(t){
+ if(!t||!('speechSynthesis'in window))return;
+ speechSynthesis.cancel();
+ const u=new SpeechSynthesisUtterance(t);u.rate=.9;speechSynthesis.speak(u);
+}
+function clearVisual(){
+ pic.removeAttribute('src');pic.style.display='none';
+ photoStatus.style.display='none';photoStatus.textContent='';
+ teachBtn.style.display='none';
+}
+function loadPicture(url,token){
+ if(!url || token!==scanToken){photoStatus.style.display='none';return}
+ photoStatus.textContent='Getting your picture…';
+ photoStatus.style.display='block';
+ const test=new Image();
+ test.onload=()=>{
+   if(token!==scanToken)return;
+   pic.src=url;pic.style.display='block';photoStatus.style.display='none';
+ };
+ test.onerror=()=>{if(token===scanToken)photoStatus.style.display='none'};
+ test.src=url;
+}
+function present(item,upc,token,showPhoto=true){
+ if(token!==scanToken)return;
  statusEl.textContent='YOU FOUND:';
  brandEl.textContent=item.brand||'';
  titleEl.textContent=item.title||'Product found';
  upcEl.textContent='UPC '+upc;
  teachBtn.style.display='none';
- showImage(item.image||'');
+ // Name and speech happen BEFORE waiting on any image.
  speak([item.brand,item.title].filter(Boolean).join(' '));
+ if(showPhoto)loadPicture(item.image||'',token);
 }
 async function off(upc){
- let r=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(upc)+'.json?fields=product_name,product_name_en,generic_name,brands,image_front_url,image_url',{cache:'no-store'});
- if(!r.ok)return null;let d=await r.json();if(d.status!==1)return null;let p=d.product||{};
+ const url='https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(upc)+'.json?fields=product_name,product_name_en,generic_name,brands,image_front_url,image_url';
+ let r=await fetch(url,{cache:'force-cache'}); if(!r.ok)return null;
+ let d=await r.json();if(d.status!==1)return null;let p=d.product||{};
  let title=p.product_name||p.product_name_en||p.generic_name||'',brand=p.brands||'',image=p.image_front_url||p.image_url||'';
  return(title||brand)?{title,brand,image}:null;
 }
 async function upcdb(upc){
- let r=await fetch('https://api.upcitemdb.com/prod/trial/lookup?upc='+encodeURIComponent(upc),{cache:'no-store'});
+ let r=await fetch('https://api.upcitemdb.com/prod/trial/lookup?upc='+encodeURIComponent(upc),{cache:'force-cache'});
  if(!r.ok)return null;let d=await r.json(),i=d.items&&d.items[0];if(!i)return null;
  return{title:i.title||'',brand:i.brand||'',image:(i.images&&i.images[0])||''};
 }
 async function lookup(upc){
- if(busy)return;busy=true;currentUPC=upc;
+ const token=++scanToken; currentUPC=upc;
+ clearVisual();
  statusEl.textContent='LOOKING IT UP…';brandEl.textContent='';titleEl.textContent='';upcEl.textContent='UPC '+upc;
- teachBtn.style.display='none';pic.style.display='none';
 
+ // 1. User-taught items are instant.
  let local=getLocal(upc);
- if(local){showItem(local,upc);busy=false;return}
+ if(local){present(local,upc,token,true);return}
 
- let a=null,b=null;
- try{a=await off(upc)}catch(e){}
- try{b=await upcdb(upc)}catch(e){}
- let item=a||b;
- if(item){
-   if(!item.image && b&&b.image)item.image=b.image;
-   if(!item.image && a&&a.image)item.image=a.image;
-   if(!item.brand && b&&b.brand)item.brand=b.brand;
-   showItem(item,upc);
- }else{
-   statusEl.textContent="I DON'T KNOW THIS ONE YET!";
-   brandEl.textContent='';titleEl.textContent='';teachBtn.style.display='inline-block';
-   speak("I don't know this one yet");
+ // 2. Previously seen products are instant too.
+ let old=getCached(upc);
+ if(old){
+   present(old,upc,token,true);
+   return;
  }
- busy=false;
+
+ // 3. Ask Open Food Facts first. As soon as it knows the product,
+ //    show/speak the name. Do NOT wait for the second database.
+ let a=null;
+ try{a=await off(upc)}catch(e){}
+ if(token!==scanToken)return;
+
+ if(a){
+   present(a,upc,token,true);
+   saveCache(upc,a);
+
+   // Only use the broader UPC service if OFF did not supply a picture.
+   if(!a.image){
+     let b=null;try{b=await upcdb(upc)}catch(e){}
+     if(token!==scanToken)return;
+     if(b){
+       let merged={title:a.title||b.title,brand:a.brand||b.brand,image:b.image||''};
+       saveCache(upc,merged);
+       if(merged.image)loadPicture(merged.image,token);
+     }
+   }
+   return;
+ }
+
+ // 4. Food database missed it; now try broader UPC database.
+ let b=null;try{b=await upcdb(upc)}catch(e){}
+ if(token!==scanToken)return;
+ if(b){
+   saveCache(upc,b);present(b,upc,token,true);return;
+ }
+
+ statusEl.textContent="I DON'T KNOW THIS ONE YET!";
+ brandEl.textContent='';titleEl.textContent='';photoStatus.style.display='none';
+ teachBtn.style.display='inline-block';
+ speak("I don't know this one yet");
 }
+
 window.addEventListener('keydown',e=>{
  if(panel.style.display==='block')return;
  let now=Date.now();if(now-lastKey>500)buffer='';lastKey=now;
@@ -115,13 +175,18 @@ window.addEventListener('keydown',e=>{
  if(e.key==='Enter'){e.preventDefault();let upc=buffer.replace(/\D/g,'');buffer='';if(upc)lookup(upc)}
 },true);
 
-teachBtn.onclick=()=>{teachUpc.textContent='UPC '+currentUPC;nameInput.value='';imageInput.value='';panel.style.display='block';nameInput.focus()}
+teachBtn.onclick=()=>{
+ teachUpc.textContent='UPC '+currentUPC;nameInput.value='';imageInput.value='';
+ panel.style.display='block';nameInput.focus();
+}
 $('cancel').onclick=()=>{panel.style.display='none';document.body.focus()}
 $('save').onclick=()=>{
  let title=nameInput.value.trim();if(!title)return;
  let db=saved();db[currentUPC]={title,brand:'',image:imageInput.value.trim()};
  localStorage.setItem('myProducts',JSON.stringify(db));
- panel.style.display='none';showItem(db[currentUPC],currentUPC);document.body.focus();
+ panel.style.display='none';
+ const token=++scanToken;clearVisual();present(db[currentUPC],currentUPC,token,true);
+ document.body.focus();
 }
 window.addEventListener('load',()=>document.body.focus());
 </script>
