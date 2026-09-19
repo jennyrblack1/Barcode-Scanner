@@ -7,107 +7,175 @@
 <title>What Did You Find?</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-*{box-sizing:border-box}
-body{margin:0;background:#f7f7f5;color:#171717}
+*{box-sizing:border-box} body{margin:0;background:#f7f7f5;color:#171717}
 main{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:28px}
 #status{font-size:clamp(30px,5vw,58px);font-weight:850;margin:8px 0 18px}
-#picture{display:none;width:min(62vw,520px);height:min(46vh,450px);object-fit:contain;background:white;border-radius:24px;padding:14px}
+#picture{display:none;width:min(62vw,520px);height:min(43vh,430px);object-fit:contain;background:white;border-radius:24px;padding:14px}
+#produceEmoji{display:none;font-size:clamp(110px,24vw,230px);line-height:1;margin:4px 0 8px}
 #photoStatus{display:none;font-size:20px;opacity:.62;margin:12px 0 2px}
 #brand{font-size:clamp(23px,4vw,42px);font-weight:700;margin-top:16px}
 #title{font-size:clamp(30px,5vw,58px);font-weight:850;line-height:1.08;max-width:900px}
 #upc{font-size:17px;opacity:.5;margin-top:12px}
 #hint{font-size:20px;opacity:.65;margin-top:20px}
-#teach{display:none;margin-top:22px;padding:16px 24px;border:0;border-radius:18px;font-size:24px;font-weight:750;background:#fff;box-shadow:0 3px 14px #0002}
-#panel{display:none;position:fixed;inset:0;background:#f7f7f5;padding:30px;z-index:5}
+.action{margin-top:18px;padding:14px 22px;border:0;border-radius:18px;font-size:22px;font-weight:750;background:#fff;box-shadow:0 3px 14px #0002}
+#teach,#edit{display:none}
+#panel{display:none;position:fixed;inset:0;background:#f7f7f5;padding:28px;z-index:5;overflow:auto}
 #panel .box{max-width:650px;margin:auto;text-align:left}
 label{display:block;font-size:20px;font-weight:700;margin:18px 0 7px}
-input{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;border-radius:12px}
-.actions{display:flex;gap:12px;margin-top:24px}
+input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;border-radius:12px}
+#photoPick{font-size:19px;width:100%;margin-top:8px}
+#preview{display:none;max-width:280px;max-height:260px;object-fit:contain;background:white;border-radius:18px;margin-top:15px;padding:8px}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
 .actions button{font-size:21px;padding:14px 20px;border-radius:12px;border:1px solid #aaa;background:white}
 #save{font-weight:800}
+.small{font-size:16px;opacity:.65;margin-top:7px}
 </style>
 </head>
 <body tabindex="0">
 <main>
 <div id="status">READY — SCAN SOMETHING</div>
 <img id="picture" alt="">
+<div id="produceEmoji" aria-hidden="true"></div>
 <div id="photoStatus"></div>
 <div id="brand"></div><div id="title"></div><div id="upc"></div>
 <div id="hint">Scan another item anytime.</div>
-<button id="teach">Teach Me This Item</button>
+<button id="teach" class="action">Teach Me This Item</button>
+<button id="edit" class="action">Add or Change Picture</button>
 </main>
 
 <div id="panel">
  <div class="box">
-  <h1>Teach Me This Item</h1>
+  <h1 id="panelTitle">Teach Me This Item</h1>
   <div id="teachUpc"></div>
   <label for="name">Simple product name</label>
-  <input id="name" placeholder="Dawn Powerwash Dish Spray">
-  <label for="imageUrl">Picture URL (optional)</label>
-  <input id="imageUrl" placeholder="https://…">
+  <input id="name" type="text" placeholder="Almond Breeze Almond Milk">
+  <label for="photoPick">Picture</label>
+  <input id="photoPick" type="file" accept="image/*">
+  <div class="small">Choose a picture already on the iPad, or use the camera option if iPadOS offers it.</div>
+  <img id="preview" alt="Selected picture">
   <div class="actions"><button id="save">Save Item</button><button id="cancel">Cancel</button></div>
  </div>
 </div>
 
 <script>
 const $=id=>document.getElementById(id);
-const statusEl=$('status'),pic=$('picture'),photoStatus=$('photoStatus'),
-brandEl=$('brand'),titleEl=$('title'),upcEl=$('upc'),teachBtn=$('teach'),
-panel=$('panel'),nameInput=$('name'),imageInput=$('imageUrl'),teachUpc=$('teachUpc');
+const statusEl=$('status'),pic=$('picture'),produceEmoji=$('produceEmoji'),photoStatus=$('photoStatus'),
+brandEl=$('brand'),titleEl=$('title'),upcEl=$('upc'),teachBtn=$('teach'),editBtn=$('edit'),
+panel=$('panel'),panelTitle=$('panelTitle'),nameInput=$('name'),photoPick=$('photoPick'),
+preview=$('preview'),teachUpc=$('teachUpc');
 
-let buffer='',lastKey=0,currentUPC='',scanToken=0;
+let buffer='',lastKey=0,currentUPC='',scanToken=0,pendingPhoto='',currentItem=null;
 
-const BUILT_INS={
- "030772117477":{title:"Dawn Powerwash Dish Spray",brand:"Dawn",image:""}
+const BUILT_INS={"030772117477":{title:"Dawn Powerwash Dish Spray",brand:"Dawn",image:""}};
+
+// Common produce PLUs. PLU labels can vary by variety/size/region, so the
+// Teach Me feature remains available for anything not in this starter list.
+const PRODUCE={
+ "4011":{title:"Banana",emoji:"🍌"},
+ "4046":{title:"Avocado",emoji:"🥑"},
+ "4225":{title:"Avocado",emoji:"🥑"},
+ "4226":{title:"Avocado",emoji:"🥑"},
+ "4770":{title:"Avocado",emoji:"🥑"},
+ "4053":{title:"Lemon",emoji:"🍋"},
+ "4033":{title:"Lemon",emoji:"🍋"},
+ "4958":{title:"Lemon",emoji:"🍋"},
+ "3107":{title:"Orange",emoji:"🍊"},
+ "4012":{title:"Orange",emoji:"🍊"},
+ "4013":{title:"Orange",emoji:"🍊"},
+ "4014":{title:"Orange",emoji:"🍊"},
+ "4131":{title:"Apple",emoji:"🍎"},
+ "4132":{title:"Apple",emoji:"🍎"},
+ "4133":{title:"Apple",emoji:"🍎"},
+ "4015":{title:"Apple",emoji:"🍎"},
+ "4020":{title:"Apple",emoji:"🍎"},
+ "4021":{title:"Apple",emoji:"🍎"},
+ "3283":{title:"Apple",emoji:"🍎"},
+ "4065":{title:"Green Bell Pepper",emoji:"🫑"},
+ "4088":{title:"Red Bell Pepper",emoji:"🫑"},
+ "4688":{title:"Yellow Bell Pepper",emoji:"🫑"},
+ "4062":{title:"Cucumber",emoji:"🥒"},
+ "4593":{title:"Cucumber",emoji:"🥒"},
+ "4078":{title:"Corn",emoji:"🌽"},
+ "4061":{title:"Lettuce",emoji:"🥬"},
+ "4640":{title:"Lettuce",emoji:"🥬"},
+ "4090":{title:"Spinach",emoji:"🥬"},
+ "4068":{title:"Green Onion",emoji:"🧅"},
+ "4093":{title:"Yellow Onion",emoji:"🧅"},
+ "4082":{title:"Red Onion",emoji:"🧅"},
+ "4072":{title:"Russet Potato",emoji:"🥔"},
+ "4727":{title:"Yellow Potato",emoji:"🥔"},
+ "4094":{title:"Carrot",emoji:"🥕"},
+ "4060":{title:"Broccoli",emoji:"🥦"},
+ "4079":{title:"Cauliflower",emoji:"🥦"},
+ "4089":{title:"Red Cabbage",emoji:"🥬"},
+ "4069":{title:"Green Cabbage",emoji:"🥬"},
+ "4087":{title:"Tomato",emoji:"🍅"},
+ "4664":{title:"Tomato",emoji:"🍅"},
+ "4064":{title:"Tomato",emoji:"🍅"},
+ "4030":{title:"Kiwi",emoji:"🥝"},
+ "4029":{title:"Pineapple",emoji:"🍍"},
+ "4051":{title:"Mango",emoji:"🥭"},
+ "4959":{title:"Mango",emoji:"🥭"},
+ "4044":{title:"Peach",emoji:"🍑"},
+ "4040":{title:"Plum",emoji:"🍑"},
+ "4045":{title:"Cherry",emoji:"🍒"},
+ "4022":{title:"Grapes",emoji:"🍇"},
+ "4023":{title:"Grapes",emoji:"🍇"},
+ "4024":{title:"Pear",emoji:"🍐"},
+ "4416":{title:"Pear",emoji:"🍐"},
+ "4032":{title:"Watermelon",emoji:"🍉"},
+ "4050":{title:"Cantaloupe",emoji:"🍈"},
+ "4329":{title:"Strawberries",emoji:"🍓"}
 };
+
+function normalizeProduceCode(code){
+  // Some scanners may return a leading zero for a PLU barcode.
+  if(PRODUCE[code]) return code;
+  if(code.length===5 && code[0]==='0' && PRODUCE[code.slice(1)]) return code.slice(1);
+  return code;
+}
+
 
 function readJSON(key){try{return JSON.parse(localStorage.getItem(key)||'{}')}catch(e){return{}}}
 function saved(){return readJSON('myProducts')}
 function cache(){return readJSON('productCache')}
 function getLocal(upc){return saved()[upc]||BUILT_INS[upc]||null}
 function getCached(upc){return cache()[upc]||null}
-function saveCache(upc,item){
-  if(!item)return;
-  let db=cache(); db[upc]=item;
-  try{localStorage.setItem('productCache',JSON.stringify(db))}catch(e){}
-}
-function speak(t){
- if(!t||!('speechSynthesis'in window))return;
- speechSynthesis.cancel();
- const u=new SpeechSynthesisUtterance(t);u.rate=.9;speechSynthesis.speak(u);
-}
-function clearVisual(){
- pic.removeAttribute('src');pic.style.display='none';
- photoStatus.style.display='none';photoStatus.textContent='';
- teachBtn.style.display='none';
-}
+function saveCache(upc,item){let db=cache();db[upc]=item;try{localStorage.setItem('productCache',JSON.stringify(db))}catch(e){}}
+function speak(t){if(!t||!('speechSynthesis'in window))return;speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(t);u.rate=.9;speechSynthesis.speak(u)}
+function clearVisual(){pic.removeAttribute('src');pic.style.display='none';produceEmoji.textContent='';produceEmoji.style.display='none';photoStatus.style.display='none';teachBtn.style.display='none';editBtn.style.display='none'}
 function loadPicture(url,token){
- if(!url || token!==scanToken){photoStatus.style.display='none';return}
- photoStatus.textContent='Getting your picture…';
- photoStatus.style.display='block';
- const test=new Image();
- test.onload=()=>{
-   if(token!==scanToken)return;
-   pic.src=url;pic.style.display='block';photoStatus.style.display='none';
- };
- test.onerror=()=>{if(token===scanToken)photoStatus.style.display='none'};
- test.src=url;
+ if(!url||token!==scanToken){photoStatus.style.display='none';return}
+ if(url.startsWith('data:')){pic.src=url;pic.style.display='block';photoStatus.style.display='none';return}
+ photoStatus.textContent='Getting your picture…';photoStatus.style.display='block';
+ let im=new Image();
+ im.onload=()=>{if(token!==scanToken)return;pic.src=url;pic.style.display='block';photoStatus.style.display='none'};
+ im.onerror=()=>{if(token===scanToken)photoStatus.style.display='none'};
+ im.src=url;
 }
-function present(item,upc,token,showPhoto=true){
- if(token!==scanToken)return;
+
+function presentProduce(item,upc,token){
+ if(token!==scanToken)return;currentItem={title:item.title,brand:"",image:""};
  statusEl.textContent='YOU FOUND:';
- brandEl.textContent=item.brand||'';
- titleEl.textContent=item.title||'Product found';
- upcEl.textContent='UPC '+upc;
+ brandEl.textContent='';
+ titleEl.textContent=item.title;
+ upcEl.textContent='PLU '+upc;
  teachBtn.style.display='none';
- // Name and speech happen BEFORE waiting on any image.
- speak([item.brand,item.title].filter(Boolean).join(' '));
- if(showPhoto)loadPicture(item.image||'',token);
+ editBtn.style.display='inline-block';
+ produceEmoji.textContent=item.emoji||'🥕';
+ produceEmoji.style.display='block';
+ speak(item.title);
+}
+
+function present(item,upc,token){
+ if(token!==scanToken)return;currentItem=item;
+ statusEl.textContent='YOU FOUND:';brandEl.textContent=item.brand||'';titleEl.textContent=item.title||'Product found';
+ upcEl.textContent='UPC '+upc;teachBtn.style.display='none';editBtn.style.display='inline-block';
+ speak([item.brand,item.title].filter(Boolean).join(' '));loadPicture(item.image||'',token);
 }
 async function off(upc){
- const url='https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(upc)+'.json?fields=product_name,product_name_en,generic_name,brands,image_front_url,image_url';
- let r=await fetch(url,{cache:'force-cache'}); if(!r.ok)return null;
- let d=await r.json();if(d.status!==1)return null;let p=d.product||{};
+ let r=await fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(upc)+'.json?fields=product_name,product_name_en,generic_name,brands,image_front_url,image_url',{cache:'force-cache'});
+ if(!r.ok)return null;let d=await r.json();if(d.status!==1)return null;let p=d.product||{};
  let title=p.product_name||p.product_name_en||p.generic_name||'',brand=p.brands||'',image=p.image_front_url||p.image_url||'';
  return(title||brand)?{title,brand,image}:null;
 }
@@ -117,77 +185,65 @@ async function upcdb(upc){
  return{title:i.title||'',brand:i.brand||'',image:(i.images&&i.images[0])||''};
 }
 async function lookup(upc){
- const token=++scanToken; currentUPC=upc;
- clearVisual();
+ let token=++scanToken;currentUPC=upc;currentItem=null;clearVisual();
  statusEl.textContent='LOOKING IT UP…';brandEl.textContent='';titleEl.textContent='';upcEl.textContent='UPC '+upc;
-
- // 1. User-taught items are instant.
- let local=getLocal(upc);
- if(local){present(local,upc,token,true);return}
-
- // 2. Previously seen products are instant too.
- let old=getCached(upc);
- if(old){
-   present(old,upc,token,true);
-   return;
- }
-
- // 3. Ask Open Food Facts first. As soon as it knows the product,
- //    show/speak the name. Do NOT wait for the second database.
- let a=null;
- try{a=await off(upc)}catch(e){}
- if(token!==scanToken)return;
-
+ let local=getLocal(upc);if(local){present(local,upc,token);return}
+ let produceCode=normalizeProduceCode(upc);
+ if(PRODUCE[produceCode]){currentUPC=produceCode;presentProduce(PRODUCE[produceCode],produceCode,token);return}
+ let old=getCached(upc);if(old){present(old,upc,token);return}
+ let a=null;try{a=await off(upc)}catch(e){} if(token!==scanToken)return;
  if(a){
-   present(a,upc,token,true);
-   saveCache(upc,a);
-
-   // Only use the broader UPC service if OFF did not supply a picture.
-   if(!a.image){
-     let b=null;try{b=await upcdb(upc)}catch(e){}
-     if(token!==scanToken)return;
-     if(b){
-       let merged={title:a.title||b.title,brand:a.brand||b.brand,image:b.image||''};
-       saveCache(upc,merged);
-       if(merged.image)loadPicture(merged.image,token);
-     }
-   }
+   present(a,upc,token);saveCache(upc,a);
+   if(!a.image){let b=null;try{b=await upcdb(upc)}catch(e){} if(token!==scanToken)return;
+     if(b){let m={title:a.title||b.title,brand:a.brand||b.brand,image:b.image||''};saveCache(upc,m);currentItem=m;if(m.image)loadPicture(m.image,token)}}
    return;
  }
-
- // 4. Food database missed it; now try broader UPC database.
- let b=null;try{b=await upcdb(upc)}catch(e){}
- if(token!==scanToken)return;
- if(b){
-   saveCache(upc,b);present(b,upc,token,true);return;
- }
-
- statusEl.textContent="I DON'T KNOW THIS ONE YET!";
- brandEl.textContent='';titleEl.textContent='';photoStatus.style.display='none';
- teachBtn.style.display='inline-block';
- speak("I don't know this one yet");
+ let b=null;try{b=await upcdb(upc)}catch(e){} if(token!==scanToken)return;
+ if(b){saveCache(upc,b);present(b,upc,token);return}
+ statusEl.textContent="I DON'T KNOW THIS ONE YET!";brandEl.textContent='';titleEl.textContent='';photoStatus.style.display='none';
+ teachBtn.style.display='inline-block';speak("I don't know this one yet");
 }
-
 window.addEventListener('keydown',e=>{
- if(panel.style.display==='block')return;
- let now=Date.now();if(now-lastKey>500)buffer='';lastKey=now;
+ if(panel.style.display==='block')return;let now=Date.now();if(now-lastKey>500)buffer='';lastKey=now;
  if(/^\d$/.test(e.key)){e.preventDefault();buffer+=e.key;return}
  if(e.key==='Enter'){e.preventDefault();let upc=buffer.replace(/\D/g,'');buffer='';if(upc)lookup(upc)}
 },true);
 
-teachBtn.onclick=()=>{
- teachUpc.textContent='UPC '+currentUPC;nameInput.value='';imageInput.value='';
- panel.style.display='block';nameInput.focus();
+function openEditor(isNew){
+ panelTitle.textContent=isNew?'Teach Me This Item':'Add or Change Picture';
+ teachUpc.textContent='UPC '+currentUPC;
+ nameInput.value=isNew?'':(currentItem?.title||'');
+ pendingPhoto=currentItem?.image||'';
+ preview.src=pendingPhoto||'';preview.style.display=pendingPhoto?'block':'none';
+ photoPick.value='';panel.style.display='block';nameInput.focus();
 }
-$('cancel').onclick=()=>{panel.style.display='none';document.body.focus()}
+teachBtn.onclick=()=>openEditor(true);
+editBtn.onclick=()=>openEditor(false);
+photoPick.onchange=()=>{
+ const f=photoPick.files&&photoPick.files[0];if(!f)return;
+ // Resize/compress so photos fit comfortably in iPad local storage.
+ const reader=new FileReader();
+ reader.onload=ev=>{
+   const im=new Image();
+   im.onload=()=>{
+     const max=700,scale=Math.min(1,max/Math.max(im.width,im.height));
+     const c=document.createElement('canvas');c.width=Math.round(im.width*scale);c.height=Math.round(im.height*scale);
+     c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+     pendingPhoto=c.toDataURL('image/jpeg',0.72);
+     preview.src=pendingPhoto;preview.style.display='block';
+   };
+   im.src=ev.target.result;
+ };
+ reader.readAsDataURL(f);
+};
+$('cancel').onclick=()=>{panel.style.display='none';document.body.focus()};
 $('save').onclick=()=>{
  let title=nameInput.value.trim();if(!title)return;
- let db=saved();db[currentUPC]={title,brand:'',image:imageInput.value.trim()};
- localStorage.setItem('myProducts',JSON.stringify(db));
- panel.style.display='none';
- const token=++scanToken;clearVisual();present(db[currentUPC],currentUPC,token,true);
- document.body.focus();
-}
+ let db=saved();db[currentUPC]={title,brand:'',image:pendingPhoto||''};
+ try{localStorage.setItem('myProducts',JSON.stringify(db))}
+ catch(e){alert('The iPad could not save this picture. Try choosing a smaller photo.');return}
+ panel.style.display='none';let token=++scanToken;clearVisual();present(db[currentUPC],currentUPC,token);document.body.focus();
+};
 window.addEventListener('load',()=>document.body.focus());
 </script>
 </body></html>
