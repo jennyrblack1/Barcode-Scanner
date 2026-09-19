@@ -95,10 +95,26 @@ async function lookup(upc){
   lookupBusy = true;
   resetDisplay(upc);
 
-  let item = null;
-  try { item = await lookupOpenFoodFacts(upc); } catch(e) {}
-  if (!item) {
-    try { item = await lookupUPCItemDB(upc); } catch(e) {}
+  // Ask both databases. Keep the first good identification, but borrow
+  // a photo from the other source when the identifying source has none.
+  let foodItem = null;
+  let upcItem = null;
+
+  try { foodItem = await lookupOpenFoodFacts(upc); } catch(e) {}
+  try { upcItem = await lookupUPCItemDB(upc); } catch(e) {}
+
+  let item = foodItem || upcItem;
+
+  if (item && !item.image) {
+    if (foodItem && foodItem.image) item.image = foodItem.image;
+    else if (upcItem && upcItem.image) item.image = upcItem.image;
+  }
+
+  // If the broader UPC source has a more complete title, use it while
+  // preserving any good brand/image data we already found.
+  if (item && upcItem) {
+    if ((!item.title || item.title.length < 3) && upcItem.title) item.title = upcItem.title;
+    if (!item.brand && upcItem.brand) item.brand = upcItem.brand;
   }
 
   if (item) {
