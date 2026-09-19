@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>What Did You Find? — V8</title>
+<title>What Did You Find? — V9</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box} body{margin:0;background:#f7f7f5;color:#171717}
@@ -39,9 +39,10 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
 <div id="produceEmoji" aria-hidden="true"></div>
 <div id="photoStatus"></div>
 <div id="brand"></div><div id="title"></div><div id="upc"></div>
-<div id="hint">Scan another item anytime. <span style="opacity:.45">V8</span></div>
+<div id="hint">Scan another item anytime. <span style="opacity:.45">V9</span></div>
 <button id="teach" class="action">Teach Me This Item</button>
 <button id="edit" class="action">Add or Change Picture</button>
+<button id="transfer" class="action">Transfer My Products</button>
 </main>
 
 <div id="panel">
@@ -59,6 +60,7 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
  </div>
 </div>
 
+<div id="transferPanel" style="display:none;position:fixed;inset:0;background:#f7f7f5;padding:28px;z-index:6;overflow:auto"><div style="max-width:650px;margin:auto;text-align:left"><h1>Transfer My Products</h1><p id="transferCount"></p><p class="small">Export makes one backup file containing the products you taught this iPad, including saved pictures. Import that file on the other iPad.</p><div class="actions"><button id="exportProducts">Export My Products</button><button id="importProducts">Import Products</button><button id="closeTransfer">Done</button></div><input id="importFile" type="file" accept="application/json,.json" style="position:absolute;width:1px;height:1px;opacity:0"><div id="transferMessage" style="margin-top:18px;font-size:19px;font-weight:650"></div></div></div>
 <script>
 const $=id=>document.getElementById(id);
 const statusEl=$('status'),pic=$('picture'),produceEmoji=$('produceEmoji'),photoStatus=$('photoStatus'),
@@ -218,7 +220,7 @@ async function lookup(upc){
  teachBtn.style.display='inline-block';speak("I don't know this one yet");
 }
 window.addEventListener('keydown',e=>{
- if(panel.style.display==='block')return;let now=Date.now();if(now-lastKey>500)buffer='';lastKey=now;
+ if(panel.style.display==='block'||document.getElementById('transferPanel').style.display==='block')return;let now=Date.now();if(now-lastKey>500)buffer='';lastKey=now;
  if(/^\d$/.test(e.key)){e.preventDefault();buffer+=e.key;return}
  if(e.key==='Enter'){e.preventDefault();let upc=buffer.replace(/\D/g,'');buffer='';if(upc)lookup(upc)}
 },true);
@@ -262,6 +264,13 @@ $('save').onclick=()=>{
  catch(e){alert('The iPad could not save this picture. Try choosing a smaller photo.');return}
  panel.style.display='none';let token=++scanToken;clearVisual();present(db[currentUPC],currentUPC,token);document.body.focus();
 };
+const transferPanel=document.getElementById('transferPanel'),transferMessage=document.getElementById('transferMessage'),importFile=document.getElementById('importFile');
+function updateTransferCount(){const n=Object.keys(saved()).length;document.getElementById('transferCount').textContent=n===1?'1 taught product is saved on this iPad.':`${n} taught products are saved on this iPad.`;}
+document.getElementById('transfer').onclick=()=>{updateTransferCount();transferMessage.textContent='';transferPanel.style.display='block';};
+document.getElementById('closeTransfer').onclick=()=>{transferPanel.style.display='none';document.body.focus();};
+document.getElementById('exportProducts').onclick=()=>{const payload={app:"What Did You Find?",version:9,exportedAt:new Date().toISOString(),products:saved()};const blob=new Blob([JSON.stringify(payload)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='scanner-products-backup.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);transferMessage.textContent='Backup created. Save or share the file to the other iPad.';};
+document.getElementById('importProducts').onclick=()=>importFile.click();
+importFile.onchange=()=>{const f=importFile.files&&importFile.files[0];if(!f)return;const reader=new FileReader();reader.onload=ev=>{try{const data=JSON.parse(ev.target.result);if(!data||typeof data.products!=='object'||Array.isArray(data.products))throw new Error();const incoming=data.products,merged={...saved(),...incoming};localStorage.setItem('myProducts',JSON.stringify(merged));const n=Object.keys(incoming).length;updateTransferCount();transferMessage.textContent=`Imported ${n} product${n===1?'':'s'} successfully.`;}catch(e){transferMessage.textContent='That does not look like a scanner backup file.'}importFile.value='';};reader.readAsText(f);};
 window.addEventListener('load',()=>document.body.focus());
 </script>
 </body></html>
