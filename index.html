@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>What Did You Find?</title>
+<style>
+:root { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; background:#f7f7f5; color:#171717; }
+main { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px; text-align:center; }
+#status { font-size:clamp(30px,5vw,58px); font-weight:800; margin:10px 0 22px; }
+#picture { display:none; width:min(62vw,520px); height:min(50vh,500px); object-fit:contain; background:white; border-radius:28px; padding:18px; box-shadow:0 8px 28px #0002; }
+#brand { font-size:clamp(24px,4vw,44px); font-weight:700; margin-top:22px; }
+#title { font-size:clamp(30px,5vw,60px); font-weight:850; line-height:1.08; max-width:900px; }
+#upc { font-size:18px; opacity:.55; margin-top:14px; }
+#scan { position:fixed; left:-10000px; top:0; opacity:0; }
+#hint { margin-top:22px; font-size:20px; opacity:.65; }
+</style>
+</head>
+<body>
+<input id="scan" inputmode="none" autocomplete="off" aria-label="Barcode scanner input">
+<main id="screen">
+  <div id="status">READY — SCAN SOMETHING!</div>
+  <img id="picture" alt="">
+  <div id="brand"></div>
+  <div id="title"></div>
+  <div id="upc"></div>
+  <div id="hint">Use the orange scanner</div>
+</main>
+<script>
+const scan = document.getElementById('scan');
+const statusEl = document.getElementById('status');
+const pic = document.getElementById('picture');
+const brandEl = document.getElementById('brand');
+const titleEl = document.getElementById('title');
+const upcEl = document.getElementById('upc');
+
+function focusScanner(){ scan.value=''; scan.focus({preventScroll:true}); }
+function speak(text){
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9;
+  speechSynthesis.speak(u);
+}
+async function lookup(upc){
+  statusEl.textContent = 'LOOKING...';
+  brandEl.textContent = '';
+  titleEl.textContent = '';
+  upcEl.textContent = upc;
+  pic.style.display='none';
+  try {
+    const url = 'https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(upc);
+    const r = await fetch(url, {headers:{'Accept':'application/json'}});
+    if (!r.ok) throw new Error('lookup failed');
+    const data = await r.json();
+    const item = data.items && data.items[0];
+    if (!item) throw new Error('not found');
+    statusEl.textContent = 'YOU FOUND:';
+    brandEl.textContent = item.brand || '';
+    titleEl.textContent = item.title || 'Product found';
+    const image = (item.images && item.images[0]) || '';
+    if (image) { pic.src=image; pic.style.display='block'; }
+    speak([item.brand,item.title].filter(Boolean).join(' '));
+  } catch(e) {
+    statusEl.textContent = "I DON'T KNOW THIS ONE YET!";
+    titleEl.textContent = '';
+    brandEl.textContent = '';
+    speak("I don't know this one yet");
+  } finally {
+    focusScanner();
+  }
+}
+scan.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const upc = scan.value.replace(/\D/g,'');
+    scan.value='';
+    if (upc) lookup(upc);
+  }
+});
+document.addEventListener('click', focusScanner);
+window.addEventListener('load', focusScanner);
+window.addEventListener('pageshow', focusScanner);
+</script>
+</body>
+</html>
