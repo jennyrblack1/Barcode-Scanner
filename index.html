@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>What Did You Find?</title>
 <style>
-:root { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+:root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 * { box-sizing:border-box; }
 body { margin:0; min-height:100vh; background:#f7f7f5; color:#171717; }
-main { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px; text-align:center; }
+main { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:28px; }
 #status { font-size:clamp(30px,5vw,58px); font-weight:800; margin:10px 0 22px; }
-#picture { display:none; width:min(62vw,520px); height:min(50vh,500px); object-fit:contain; background:white; border-radius:28px; padding:18px; box-shadow:0 8px 28px #0002; }
+#picture { display:none; width:min(62vw,520px); height:min(50vh,500px); object-fit:contain; background:white; border-radius:24px; padding:16px; }
 #brand { font-size:clamp(24px,4vw,44px); font-weight:700; margin-top:22px; }
 #title { font-size:clamp(30px,5vw,60px); font-weight:850; line-height:1.08; max-width:900px; }
 #upc { font-size:18px; opacity:.55; margin-top:14px; }
@@ -20,15 +20,16 @@ main { min-height:100vh; display:flex; flex-direction:column; align-items:center
 </style>
 </head>
 <body>
-<input id="scan" inputmode="none" autocomplete="off" aria-label="Barcode scanner input">
-<main id="screen">
-  <div id="status">READY — SCAN SOMETHING!</div>
+<main>
+  <input id="scan" inputmode="none" autocomplete="off" aria-label="Barcode scanner input">
+  <div id="status">READY — SCAN SOMETHING</div>
   <img id="picture" alt="">
   <div id="brand"></div>
   <div id="title"></div>
   <div id="upc"></div>
-  <div id="hint">Use the orange scanner</div>
+  <div id="hint">Scan another item anytime.</div>
 </main>
+
 <script>
 const scan = document.getElementById('scan');
 const statusEl = document.getElementById('status');
@@ -37,50 +38,96 @@ const brandEl = document.getElementById('brand');
 const titleEl = document.getElementById('title');
 const upcEl = document.getElementById('upc');
 
-function focusScanner(){ scan.value=''; scan.focus({preventScroll:true}); }
+function focusScanner(){ setTimeout(()=>scan.focus(), 50); }
+
 function speak(text){
-  if (!('speechSynthesis' in window)) return;
+  if (!text || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 0.9;
   speechSynthesis.speak(u);
 }
-async function lookup(upc){
-  statusEl.textContent = 'LOOKING...';
+
+function resetDisplay(upc){
+  statusEl.textContent = 'LOOKING IT UP…';
   brandEl.textContent = '';
   titleEl.textContent = '';
-  upcEl.textContent = upc;
-  pic.style.display='none';
-  try {
-    const url = 'https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(upc);
-    const r = await fetch(url, {headers:{'Accept':'application/json'}});
-    if (!r.ok) throw new Error('lookup failed');
-    const data = await r.json();
-    const item = data.items && data.items[0];
-    if (!item) throw new Error('not found');
+  upcEl.textContent = upc ? 'UPC ' + upc : '';
+  pic.style.display = 'none';
+  pic.removeAttribute('src');
+}
+
+function normalizeOpenFoodFacts(p, upc){
+  if (!p) return null;
+  const title = p.product_name || p.product_name_en || p.generic_name || '';
+  const brand = p.brands || '';
+  const image = p.image_front_url || p.image_url || '';
+  if (!title && !brand) return null;
+  return {title, brand, image, upc};
+}
+
+async function lookupOpenFoodFacts(upc){
+  const url = 'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(upc) +
+              '.json?fields=code,product_name,product_name_en,generic_name,brands,image_front_url,image_url';
+  const r = await fetch(url, {cache:'no-store'});
+  if (!r.ok) throw new Error('Open Food Facts error');
+  const data = await r.json();
+  if (data.status !== 1) return null;
+  return normalizeOpenFoodFacts(data.product, upc);
+}
+
+async function lookupUPCItemDB(upc){
+  const url = 'https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(upc);
+  const r = await fetch(url, {cache:'no-store'});
+  if (!r.ok) throw new Error('UPCitemdb error');
+  const data = await r.json();
+  const item = data.items && data.items[0];
+  if (!item) return null;
+  return {
+    title: item.title || '',
+    brand: item.brand || '',
+    image: (item.images && item.images[0]) || '',
+    upc
+  };
+}
+
+async function lookup(upc){
+  resetDisplay(upc);
+  let item = null;
+
+  // Try a food-focused database first, then the broader UPC database.
+  try { item = await lookupOpenFoodFacts(upc); } catch(e) {}
+  if (!item) {
+    try { item = await lookupUPCItemDB(upc); } catch(e) {}
+  }
+
+  if (item) {
     statusEl.textContent = 'YOU FOUND:';
     brandEl.textContent = item.brand || '';
     titleEl.textContent = item.title || 'Product found';
-    const image = (item.images && item.images[0]) || '';
-    if (image) { pic.src=image; pic.style.display='block'; }
-    speak([item.brand,item.title].filter(Boolean).join(' '));
-  } catch(e) {
+    if (item.image) {
+      pic.src = item.image;
+      pic.style.display = 'block';
+    }
+    speak([item.brand, item.title].filter(Boolean).join(' '));
+  } else {
     statusEl.textContent = "I DON'T KNOW THIS ONE YET!";
     titleEl.textContent = '';
     brandEl.textContent = '';
     speak("I don't know this one yet");
-  } finally {
-    focusScanner();
   }
+  focusScanner();
 }
+
 scan.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     e.preventDefault();
     const upc = scan.value.replace(/\D/g,'');
-    scan.value='';
+    scan.value = '';
     if (upc) lookup(upc);
   }
 });
+
 document.addEventListener('click', focusScanner);
 window.addEventListener('load', focusScanner);
 window.addEventListener('pageshow', focusScanner);
