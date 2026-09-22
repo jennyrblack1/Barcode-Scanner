@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>What Did You Find? — V9</title>
+<title>What Did You Find? — V9.1</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box} body{margin:0;background:#f7f7f5;color:#171717}
@@ -39,7 +39,7 @@ input[type=text]{width:100%;font-size:24px;padding:14px;border:1px solid #bbb;bo
 <div id="produceEmoji" aria-hidden="true"></div>
 <div id="photoStatus"></div>
 <div id="brand"></div><div id="title"></div><div id="upc"></div>
-<div id="hint">Scan another item anytime. <span style="opacity:.45">V9</span></div>
+<div id="hint">Scan another item anytime. <span style="opacity:.45">V9.1</span></div>
 <button id="teach" class="action">Teach Me This Item</button>
 <button id="edit" class="action">Add or Change Picture</button>
 <button id="transfer" class="action">Transfer My Products</button>
@@ -137,8 +137,12 @@ function normalizeProduceCode(code){
   if(PRODUCE[code]) return code;
   if(code.length===5 && code[0]==='0' && PRODUCE[code.slice(1)]) return code.slice(1);
 
-  // Longer produce stickers can embed the PLU inside a GS1-style barcode.
-  // Example from our test: 0100605049040538 contains lemon PLU 4053.
+  // Only search for an embedded PLU in long GS1-style produce labels.
+  // Never do this for ordinary retail UPC-A/EAN barcodes: for example,
+  // Nature Made UPC 031604032265 contains 4032 by coincidence, which is
+  // also the PLU for watermelon. The lemon test barcode is 16 digits long.
+  if(code.length < 14) return code;
+
   let matches=[];
   for(const plu of Object.keys(PRODUCE)){
     let pos=code.lastIndexOf(plu);
